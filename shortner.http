@@ -1,0 +1,8 @@
+### GET request to example server
+POST localhost:8080/shorten
+Content-Type: application/json
+
+{
+  "longUrl": "https://uol.com.br/"
+}
+###

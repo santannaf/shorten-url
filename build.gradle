@@ -1,0 +1,71 @@
+plugins {
+    id 'java'
+    id 'org.graalvm.buildtools.native' version '0.11.4'
+}
+
+group = 'santannaf.shortner.url'
+version = '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.hashids:hashids:1.0.3'
+    implementation 'org.postgresql:postgresql:42.7.10'
+    implementation 'redis.clients:jedis:7.4.0'
+    implementation 'com.zaxxer:HikariCP:6.2.1'
+    implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
+    implementation 'org.slf4j:slf4j-simple:2.0.16'
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'Main'
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
+
+tasks.register("runCustomJar", Exec) {
+    group = "application"
+    dependsOn("jar")
+
+    def app = "java-url-shortner-1.0.jar"
+    def appAddress = "./build/libs/$app"
+
+    commandLine(
+            "java",
+            "-agentlib:native-image-agent=config-merge-dir=./src/main/resources/META-INF/native-image/",
+            "-jar",
+            appAddress
+    )
+}
+
+graalvmNative {
+    binaries {
+        named('main') {
+            imageName = 'shorten'
+            mainClass = 'Main'
+            configurationFileDirectories.from(file("src/main/resources/META-INF/native-image"))
+            verbose = true
+            debug = true
+            buildArgs.addAll(
+                    '--color=always',
+                    '-H:+AddAllCharsets',
+                    '--enable-url-protocols=https',
+                    '-Djava.awt.headless=true'
+            )
+        }
+    }
+}
