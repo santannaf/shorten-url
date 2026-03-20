@@ -6,7 +6,7 @@ public class HashIdGenerator {
 
     private static final String ALPHABET  =
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    private static final int    MIN_LENGTH = 4;
+    private static final int    MIN_LENGTH = 6;
     private static final String SALT       = "url-shortener-salt-2025";
 
     private final Hashids hashids;
@@ -19,6 +19,7 @@ public class HashIdGenerator {
         return hashids.encode(id);
     }
 
+    @SuppressWarnings("unused")
     public long decode(String hash) {
         long[] numbers = hashids.decode(hash);
         return numbers.length > 0 ? numbers[0] : -1L;

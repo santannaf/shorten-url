@@ -26,18 +26,18 @@ public class ShortenHandler implements HttpHandler {
 
         try {
             String body = readBody(exchange.getRequestBody());
-            String longUrl = parseJsonField(body, "longUrl");
+            String longUrl = parseJsonField(body);
 
             if (longUrl == null || longUrl.isBlank()) {
                 sendResponse(exchange, 400, "{\"error\": \"Field 'longUrl' is required\"}");
                 return;
             }
 
-            String shortCode = service.shorten(longUrl);
-            String response = "{\"shortUrl\": \"http://short.ly/" + shortCode + "\"}";
-            sendResponse(exchange, 201, response);
+            var result = service.shorten(longUrl);
+            String response = "{\"shortUrl\": \"http://short.ly/" + result.shortCode() + "\"}";
+            sendResponse(exchange, result.created() ? 201 : 200, response);
         } catch (Exception e) {
-            e.printStackTrace();
+//            e.printStackTrace();
             sendResponse(exchange, 500, "{\"error\": \"Internal Server Error\"}");
         }
     }
@@ -46,8 +46,8 @@ public class ShortenHandler implements HttpHandler {
         return new String(is.readAllBytes(), StandardCharsets.UTF_8);
     }
 
-    private String parseJsonField(String json, String field) {
-        String key = "\"" + field + "\"";
+    private String parseJsonField(String json) {
+        String key = "\"" + "longUrl" + "\"";
         int idx = json.indexOf(key);
         if (idx == -1) return null;
 

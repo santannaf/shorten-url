@@ -6,6 +6,9 @@ import repository.CounterRepository;
 import repository.UrlRepository;
 
 public class UrlShortenerService {
+
+    public record ShortenResult(String shortCode, boolean created) {}
+
     private final UrlRepository repository;
     private final CounterRepository counterRepository;
     private final UrlCache cache;
@@ -21,12 +24,17 @@ public class UrlShortenerService {
         this.hashGenerator = hashGenerator;
     }
 
-    public String shorten(String longUrl) {
+    public ShortenResult shorten(String longUrl) {
+        String existing = repository.findByLongUrl(longUrl);
+        if (existing != null) {
+            return new ShortenResult(existing, false);
+        }
+
         long id = counterRepository.nextId();
         String shortCode = hashGenerator.encode(id);
         repository.save(id, shortCode, longUrl);
         cache.put(shortCode, longUrl);
-        return shortCode;
+        return new ShortenResult(shortCode, true);
     }
 
     public String getLongUrl(String shortCode) {

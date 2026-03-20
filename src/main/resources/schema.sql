@@ -5,3 +5,6 @@ CREATE TABLE IF NOT EXISTS public.urls
     long_url   TEXT        NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX idx_short_url ON urls (short_url);
+CREATE INDEX idx_long_url ON urls (long_url);

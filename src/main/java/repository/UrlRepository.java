@@ -9,9 +9,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class UrlRepository {
 
+    private static final Logger LOG = Logger.getLogger(UrlRepository.class.getName());
     private static final int MAX_BATCH = 500;
     private final ConnectionPool pool;
     private final BlockingQueue<Object[]> buffer = new LinkedBlockingQueue<>();
@@ -25,11 +28,18 @@ public class UrlRepository {
         buffer.add(new Object[]{id, shortCode, longUrl});
     }
 
+    public String findByLongUrl(String longUrl) {
+        return queryForString("SELECT short_url FROM urls WHERE long_url = ?", longUrl);
+    }
+
     public String findByShortCode(String shortCode) {
-        String sql = "SELECT long_url FROM urls WHERE short_url = ?";
+        return queryForString("SELECT long_url FROM urls WHERE short_url = ?", shortCode);
+    }
+
+    private String queryForString(String sql, String param) {
         try (Connection conn = pool.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, shortCode);
+            ps.setString(1, param);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getString(1) : null;
             }
@@ -73,7 +83,7 @@ public class UrlRepository {
             }
             ps.executeUpdate();
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.log(Level.SEVERE, "Falha ao gravar batch de URLs", e);
         }
     }
 }
