@@ -41,6 +41,7 @@ public class ConnectionPool {
         return dataSource.getConnection();
     }
 
+    @SuppressWarnings("unused")
     public void close() {
         dataSource.close();
     }

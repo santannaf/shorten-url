@@ -35,6 +35,7 @@ public class RedisClientConfig {
         return redisClient;
     }
 
+    @SuppressWarnings("unused")
     public void close() {
         redisClient.close();
     }
