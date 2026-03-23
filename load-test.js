@@ -21,6 +21,17 @@ const URLS_TO_SHORTEN = [
     "https://www.medium.com",
 ];
 
+/**
+ * Gera uma URL única usando VU id + iteração + timestamp
+ * para garantir que cada POST seja uma escrita real (sem dedup).
+ */
+function uniqueUrl() {
+    const vu   = __VU || 0;
+    const iter = __ITER || 0;
+    const ts   = Date.now();
+    return `https://example.com/page/${vu}-${iter}-${ts}`;
+}
+
 // ─────────────────────────────────────────────
 // MÉTRICAS CUSTOMIZADAS
 // ─────────────────────────────────────────────
@@ -31,6 +42,13 @@ const redirectSuccessRate = new Rate("redirect_success_rate");
 const shortenErrors      = new Counter("shorten_errors");
 const redirectErrors     = new Counter("redirect_errors");
 
+// Métricas do cenário write-then-read
+const writeThenReadShortenDuration  = new Trend("wtr_shorten_duration",  true);
+const writeThenReadRedirectDuration = new Trend("wtr_redirect_duration", true);
+const writeThenReadSuccessRate      = new Rate("wtr_success_rate");
+const writeThenReadConsistencyRate  = new Rate("wtr_consistency_rate");
+const writeThenReadErrors           = new Counter("wtr_errors");
+
 // ─────────────────────────────────────────────
 // CENÁRIOS
 // ─────────────────────────────────────────────
@@ -40,9 +58,9 @@ export const options = {
             executor:        "ramping-vus",
             startVUs:        0,
             stages: [
-                { duration: "30s", target: 10  },
-                { duration: "1m",  target: 50  },
-                { duration: "2m",  target: 100 },
+                { duration: "30s", target: 20  },
+                { duration: "1m",  target: 100 },
+                { duration: "2m",  target: 200 },
                 { duration: "30s", target: 0   },
             ],
             gracefulRampDown: "10s",
@@ -60,13 +78,30 @@ export const options = {
             gracefulRampDown: "10s",
             exec:            "redirectUrl",
         },
+        // Cenário write-then-read: encurta URL única e imediatamente consulta
+        write_then_read_scenario: {
+            executor:        "ramping-vus",
+            startVUs:        0,
+            stages: [
+                { duration: "30s", target: 10  },
+                { duration: "1m",  target: 50  },
+                { duration: "2m",  target: 100 },
+                { duration: "30s", target: 0   },
+            ],
+            gracefulRampDown: "10s",
+            exec:            "shortenThenRedirect",
+        },
     },
     thresholds: {
-        shorten_duration:     ["p(95)<2000", "p(99)<5000"],
-        redirect_duration:    ["p(95)<500",  "p(99)<1000"],
-        shorten_success_rate: ["rate>0.95"],
-        redirect_success_rate:["rate>0.95"],
-        http_req_failed:      ["rate<0.05"],
+        shorten_duration:        ["p(95)<2000", "p(99)<5000"],
+        redirect_duration:       ["p(95)<500",  "p(99)<1000"],
+        shorten_success_rate:    ["rate>0.95"],
+        redirect_success_rate:   ["rate>0.95"],
+        wtr_shorten_duration:    ["p(95)<2000", "p(99)<5000"],
+        wtr_redirect_duration:   ["p(95)<500",  "p(99)<1000"],
+        wtr_success_rate:        ["rate>0.95"],
+        wtr_consistency_rate:    ["rate>0.99"],
+        http_req_failed:         ["rate<0.05"],
     },
 };
 
@@ -101,6 +136,7 @@ export function setup() {
             {
                 headers: HEADERS,
                 timeout: "20s",
+                tags: { name: "SETUP POST /shorten" },
             }
         );
 
@@ -130,13 +166,14 @@ export function setup() {
 // CENÁRIO 1 — Encurtar URL (POST /shorten)
 // ─────────────────────────────────────────────
 export function shortenUrl(data) {
-    const url     = URLS_TO_SHORTEN[Math.floor(Math.random() * URLS_TO_SHORTEN.length)];
-    const payload = JSON.stringify({ longUrl: url }); // ✅ campo correto
+    const url     = uniqueUrl(); // ✅ URL única para garantir escrita real
+    const payload = JSON.stringify({ longUrl: url });
 
     const start    = Date.now();
     const response = http.post(`${BASE_URL}/shorten`, payload, {
         headers: HEADERS,
-        timeout: "20s", // ✅ timeout aumentado
+        timeout: "20s",
+        tags: { name: "POST /shorten" },
     });
     const duration = Date.now() - start;
 
@@ -192,8 +229,9 @@ export function redirectUrl(data) {
     const start    = Date.now();
     const response = http.get(`${BASE_URL}/${shortCode}`, {
         headers:   { Accept: "application/json" },
-        redirects: 0,      // ✅ não segue o redirect, apenas verifica o status
+        redirects: 0,
         timeout:   "10s",
+        tags: { name: "GET /{shortCode}" },
     });
     const duration = Date.now() - start;
 
@@ -214,6 +252,100 @@ export function redirectUrl(data) {
     }
 
     sleep(randomBetween(0.05, 0.2));
+}
+
+// ─────────────────────────────────────────────
+// CENÁRIO 3 — Write-then-Read (POST + GET imediato)
+// Valida consistência: a URL recém-criada deve ser
+// resolvível imediatamente.
+// ─────────────────────────────────────────────
+export function shortenThenRedirect() {
+    const url     = uniqueUrl();
+    const payload = JSON.stringify({ longUrl: url });
+
+    // ── STEP 1: Encurtar ──
+    const shortenStart = Date.now();
+    const shortenRes   = http.post(`${BASE_URL}/shorten`, payload, {
+        headers: HEADERS,
+        timeout: "20s",
+        tags: { name: "WTR POST /shorten" },
+    });
+    const shortenTime = Date.now() - shortenStart;
+
+    writeThenReadShortenDuration.add(shortenTime);
+
+    const shortenOk = check(shortenRes, {
+        "✅ wtr shorten: status 200/201": (r) => r.status === 200 || r.status === 201,
+    });
+
+    if (!shortenOk) {
+        writeThenReadSuccessRate.add(false);
+        writeThenReadConsistencyRate.add(false);
+        writeThenReadErrors.add(1);
+        console.error(
+            `[WTR SHORTEN ERROR] Status: ${shortenRes.status} | Body: ${shortenRes.body}`
+        );
+        sleep(randomBetween(0.1, 0.3));
+        return;
+    }
+
+    // Extrai o shortCode do response
+    let shortCode;
+    try {
+        const body = JSON.parse(shortenRes.body);
+        shortCode  = extractCode(body.shortUrl);
+    } catch (e) {
+        writeThenReadSuccessRate.add(false);
+        writeThenReadConsistencyRate.add(false);
+        writeThenReadErrors.add(1);
+        console.error(`[WTR PARSE ERROR] ${e.message}`);
+        sleep(randomBetween(0.1, 0.3));
+        return;
+    }
+
+    if (!shortCode) {
+        writeThenReadSuccessRate.add(false);
+        writeThenReadConsistencyRate.add(false);
+        writeThenReadErrors.add(1);
+        console.error(`[WTR ERROR] shortCode nulo`);
+        sleep(randomBetween(0.1, 0.3));
+        return;
+    }
+
+    // ── STEP 2: Consultar imediatamente ──
+    const redirectStart = Date.now();
+    const redirectRes   = http.get(`${BASE_URL}/${shortCode}`, {
+        headers:   { Accept: "application/json" },
+        redirects: 0,
+        timeout:   "10s",
+        tags: { name: "WTR GET /{shortCode}" },
+    });
+    const redirectTime = Date.now() - redirectStart;
+
+    writeThenReadRedirectDuration.add(redirectTime);
+
+    const redirectOk = check(redirectRes, {
+        "✅ wtr redirect: status 301/302": (r) => r.status === 301 || r.status === 302,
+        "✅ wtr redirect: Location header": (r) => r.headers["Location"] !== undefined,
+    });
+
+    // Valida consistência: o Location deve apontar para a URL original
+    const locationMatch = check(redirectRes, {
+        "✅ wtr consistency: Location = URL original": (r) =>
+            r.headers["Location"] === url,
+    });
+
+    writeThenReadSuccessRate.add(shortenOk && redirectOk);
+    writeThenReadConsistencyRate.add(locationMatch);
+
+    if (!redirectOk || !locationMatch) {
+        writeThenReadErrors.add(1);
+        console.error(
+            `[WTR REDIRECT ERROR] Code: ${shortCode} | Status: ${redirectRes.status} | Location: ${redirectRes.headers["Location"]} | Expected: ${url}`
+        );
+    }
+
+    sleep(randomBetween(0.1, 0.3));
 }
 
 // ─────────────────────────────────────────────

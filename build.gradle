@@ -59,9 +59,20 @@ graalvmNative {
             mainClass = 'Main'
             configurationFileDirectories.from(file("src/main/resources/META-INF/native-image"))
             verbose = true
-            debug = true
             buildArgs.addAll(
                     '--color=always',
+
+                    // ── Otimização máxima ──
+                    '-O3',                      // habilita GraalNN (ML profile inference) + inlining agressivo
+
+                    // ── Instruções nativas do CPU ──
+                    '-march=native',            // usa AVX2, SSE4.2, etc. do CPU da máquina de build
+
+                    // ── Heap pré-configurado (baked no binário) ──
+                    '-R:MinHeapSize=256m',      // evita crescimento gradual no startup
+                    '-R:MaxHeapSize=512m',      // teto consistente com o -Xmx do ENTRYPOINT
+
+                    // ── Outras ──
                     '-H:+AddAllCharsets',
                     '--enable-url-protocols=https',
                     '-Djava.awt.headless=true'
