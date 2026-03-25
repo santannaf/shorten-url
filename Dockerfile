@@ -13,4 +13,4 @@ COPY --from=build /app/build/native/nativeCompile/shorten ./shorten
 RUN chown -R appuser:appgroup /app
 USER appuser
 EXPOSE 8080
-ENTRYPOINT ["./shorten", "-Xmx512m"]
+ENTRYPOINT ["./shorten", "-Xmx384m"]

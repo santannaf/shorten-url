@@ -1,23 +1,22 @@
 package cache;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import db.RedisClientConfig;
 
 public class UrlCache {
 
-    private final Cache<String, String> cache;
+    private static final String PREFIX = "cache:";
 
-    public UrlCache() {
-        this.cache = Caffeine.newBuilder()
-                .maximumSize(100_000)
-                .build();
+    private final RedisClientConfig redis;
+
+    public UrlCache(RedisClientConfig redis) {
+        this.redis = redis;
     }
 
     public void put(String shortCode, String longUrl) {
-        cache.put(shortCode, longUrl);
+        redis.get().set(PREFIX + shortCode, longUrl);
     }
 
     public String get(String shortCode) {
-        return cache.getIfPresent(shortCode);
+        return redis.get().get(PREFIX + shortCode);
     }
 }

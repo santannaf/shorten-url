@@ -41,7 +41,7 @@ public class AppServer {
         RedisClientConfig redisClientConfig = new RedisClientConfig();
         UrlRepository repository = new UrlRepository(connectionPool);
         CounterRepository counterRepository = new CounterRepository(redisClientConfig);
-        UrlCache cache = new UrlCache();
+        UrlCache cache = new UrlCache(redisClientConfig);
         HashIdGenerator hashGenerator = new HashIdGenerator();
 
         return new UrlShortenerService(

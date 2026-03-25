@@ -21,7 +21,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
-      timeout: 5s
+      timeout: 2s
       retries: 5
 
   redis:
@@ -40,12 +40,12 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 1gb
+          memory: 512mb
 
-  app:
+  app-1:
     build: .
-    container_name: urlshortener-app
-    environment:
+    container_name: urlshortener-app-1
+    environment: &app-env
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: urlshortener
@@ -53,18 +53,39 @@ services:
       DB_PASS: postgres
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-    ports:
-      - "8080:8080"
-    depends_on:
+    depends_on: &app-deps
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy: &app-deploy
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512mb
+
+  app-2:
+    build: .
+    container_name: urlshortener-app-2
+    environment: *app-env
+    depends_on: *app-deps
+    deploy: *app-deploy
+
+  nginx:
+    image: nginx:alpine
+    container_name: urlshortener-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app-1
+      - app-2
     deploy:
       resources:
         limits:
-          cpus: "1.0"
-          memory: 2gb
+          cpus: "0.5"
+          memory: 512mb
 
 volumes:
   postgres_data:
